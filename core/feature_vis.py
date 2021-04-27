@@ -101,14 +101,8 @@ def log_conv_features(model=None, layer_nums=None, preprocess_func=None, directo
                   you want logged, then every conv layer will be logged.\
                     For non-trivial models, this can be extremely time consuming.")
     layer_nums = list(range(len(conv_layers)))
-
-  iterations_base = iterations
-  resizes_base = resizes
   for conv_layer_index in layer_nums:
     layer_name = conv_layers[conv_layer_index][1]
-    if conv_layers[conv_layer_index][0] < 10:
-      iterations = iterations_base // 2
-      resizes = resizes_base //2
     try:
       save_features(model=model, layer_name=layer_name, preprocess_func=preprocess_func,
                    save_directory=directory, filter_indices=filter_indices,
