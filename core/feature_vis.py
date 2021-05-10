@@ -1,11 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Apr 19 16:52:31 2021
-
-@author: Robert Ronan
-"""
-
-#%% Imports
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,14 +5,14 @@ import os
 import pathlib
 import imageio
 import warnings
-from conv_feature_vis.utils import *
+from utils import *
+from feature_vis_utils import *
 
-
-#%%
-
-def log_conv_features(model=None, layer_nums=None, preprocess_func=None, directory="./models/",
-                filter_indices = np.arange(16), iterations=50, step_size=1,
-                resizes=0, resize_factor=1.2, sigma=1.2, clip=True, train_step=None, entropy=True):
+def log_conv_features(model=None, layer_nums=None, preprocess_func=None,
+                directory="./models/", filter_indices = np.arange(16),
+                iterations=200, step_size=1, resizes=10, resize_factor=1.2,
+                clip=True, scale_early_layers=True, train_step=None, entropy=True,
+                save_to_disk=True, tensorboard_log=True, show_plots=False):
   """
   Save visualizations and entropy of convolutional layer features.
 
@@ -86,8 +78,7 @@ def log_conv_features(model=None, layer_nums=None, preprocess_func=None, directo
     12 		 block5_conv3 		 17
     >>> log_conv_features(model, layer_nums=[0,1,6,5,11,12], preprocess_func=None,
                 directory=pathlib.Path('./feature_logs/'), filter_indices=np.arange(16),
-                iterations=50, step_size=1, resizes=2, resize_factor=1.2,
-                sigma=1.2, clip=True, entropy=True)
+                iterations=200, step_size=1, resizes=10, resize_factor=1.2, entropy=True)
 
   """
 
@@ -95,7 +86,8 @@ def log_conv_features(model=None, layer_nums=None, preprocess_func=None, directo
     os.mkdir(directory)
 
   conv_layers = get_conv_layers(model)
-
+  iterations_base = iterations
+  resizes_base = resizes
   if layer_nums is None:
     warnings.warn("If you do not pass a list of ints specifying which conv layers \
                   you want logged, then every conv layer will be logged.\
@@ -103,14 +95,21 @@ def log_conv_features(model=None, layer_nums=None, preprocess_func=None, directo
     layer_nums = list(range(len(conv_layers)))
   for conv_layer_index in layer_nums:
     layer_name = conv_layers[conv_layer_index][1]
+    if scale_early_layers and (conv_layer_index < 4):
+      iterations = iterations_base
+      resizes = resizes_base // 4
+    else:
+      iterations = iterations_base
+      resizes = resizes_base
     try:
       save_features(model=model, layer_name=layer_name, preprocess_func=preprocess_func,
                    save_directory=directory, filter_indices=filter_indices,
                    iterations=iterations, step_size=step_size, resizes=resizes,
-                   resize_factor=resize_factor, sigma=sigma, clip=clip, step=train_step, entropy=entropy)
+                   resize_factor=resize_factor, clip=clip, step=train_step, entropy=entropy,
+                   save_to_disk=save_to_disk, tensorboard_log=tensorboard_log,
+                   show_plots=show_plots)
     except ValueError as e:
       print(e)
-      continue
 
 #%% log_conv_features_callback
 class log_conv_features_callback(tf.keras.callbacks.Callback):
@@ -155,8 +154,6 @@ class log_conv_features_callback(tf.keras.callbacks.Callback):
        quality as well).
     resize_factor: A 'float' specifying how much to resize the image by during
       resizing.
-    sigma: A `float` givng the standard deviation of the gaussian bluring during
-      resizing.
     clip: A `Boolean` controlling whether to 'clip' pixel values in the lower
       1/8 of the range to 0 (or -1 for images in [-1,1]). This can reduce noise
       and improve the quality of feature visualizations. (default: `True`).
@@ -185,7 +182,7 @@ class log_conv_features_callback(tf.keras.callbacks.Callback):
             layer_nums=[0,1,2,10,11,12],
             preprocess_func=tf.keras.applications.vgg16.preprocess_input,
             clip=True, entropy=True)
-    >>> history = model.fit(train_dataset, epochs=20,validation_data=val_dataset,
+    >>> history = model.fit(train_dataset, epochs=20, validation_data=val_dataset,
                             callbacks=[feature_callback])
 
   """
@@ -198,61 +195,86 @@ class log_conv_features_callback(tf.keras.callbacks.Callback):
                layer_nums=[0,1,2,3],
                preprocess_func=None,
                filter_indices=np.arange(16),
-               iterations=50,
+               iterations=200,
                step_size=1,
-               resizes=2,
+               resizes=10,
                resize_factor=1.2,
-               sigma=1.2,
                clip=True,
+               scale_early_layers=True,
                train_step=None,
-               entropy=True):
+               entropy=True,
+               save_to_disk=True,
+               tensorboard_log=True,
+               show_plots=False):
     super(log_conv_features_callback, self).__init__()
-    self.log_dir          = pathlib.Path(log_dir)
-    self.update_freq      = update_freq
-    self.update_freq_val  = update_freq_val
-    self.overwrite        = overwrite
-    self.layer_nums       = layer_nums
-    self.preprocess_func  = preprocess_func
-    self.filter_indices   = filter_indices
-    self.iterations       = iterations
-    self.step_size        = step_size
-    self.resizes          = resizes
-    self.resize_factor    = resize_factor
-    self.sigma            = sigma
-    self.clip             = clip
-    self.train_step       = train_step
-    self.entropy          = entropy
-    if not os.path.exists(self.log_dir):
-      os.mkdir(self.log_dir)
-    if not self.overwrite:
-      i = 0
-      log_dir_temp = self.log_dir
-      while os.path.exists(log_dir_temp):
-        log_dir_temp = self.log_dir / str(i)
-        i += 1
-      os.mkdir(log_dir_temp)
-      self.log_dir = log_dir_temp
+    self.log_dir            = pathlib.Path(log_dir)
+    self.update_freq        = update_freq
+    self.update_freq_val    = update_freq_val
+    self.overwrite          = overwrite
+    self.layer_nums         = layer_nums
+    self.preprocess_func    = preprocess_func
+    self.filter_indices     = filter_indices
+    self.iterations         = iterations
+    self.step_size          = step_size
+    self.resizes            = resizes
+    self.resize_factor      = resize_factor
+    self.clip               = clip
+    self.scale_early_layers = scale_early_layers
+    self.train_step         = train_step
+    self.entropy            = entropy
+    self.save_to_disk       = save_to_disk
+    self.tensorboard_log    = tensorboard_log
+    self.show_plots         = show_plots
+    self.file_idx           = 0
   def on_epoch_end(self, epoch, logs=None):
     if self.update_freq != 'epoch':
       return
-    if epoch % self.update_freq_val != 0:
+    if (epoch == 0) or (epoch % self.update_freq_val != 0):
       return
+    if (not self.overwrite) and self.save_to_disk:
+      if epoch == 1:
+        log_dir_temp = pathlib.Path(self.log_dir / str(epoch))
+        if not os.path.exists(log_dir_temp): os.mkdir(log_dir_temp)
+        self.log_dir = pathlib.Path(log_dir_temp)
+      else:
+        log_dir_temp = pathlib.Path(self.log_dir.parent / str(epoch))
+        if not os.path.exists(log_dir_temp): os.mkdir(log_dir_temp)
+        self.log_dir = pathlib.Path(log_dir_temp)
     log_conv_features(model=self.model, layer_nums=self.layer_nums,
                 preprocess_func=self.preprocess_func, directory=self.log_dir,
                 filter_indices=self.filter_indices, iterations=self.iterations,
                 step_size=self.step_size, resizes=self.resizes,
-                resize_factor=self.resize_factor, sigma=self.sigma,
-                clip=self.clip, train_step=self.train_step, entropy=self.entropy)
+                resize_factor=self.resize_factor, clip=self.clip,
+                scale_early_layers = self.scale_early_layers,
+                train_step=self.train_step, entropy=self.entropy,
+                save_to_disk=self.save_to_disk, tensorboard_log=self.tensorboard_log,
+                show_plots=self.show_plots
+                )
 
   def on_batch_end(self, batch, logs=None):
     if self.update_freq != 'batch':
       return
-    if batch % self.update_freq_val != 0:
+    if (batch == 1) or (batch % self.update_freq_val != 0):
       return
+    if (not self.overwrite) and self.save_to_disk:
+      if self.file_idx == 0:
+        log_dir_temp = self.log_dir / str(self.file_idx)
+        if not os.path.exists(log_dir_temp): os.mkdir(log_dir_temp)
+        self.log_dir = pathlib.Path(log_dir_temp)
+        self.file_idx += 1
+      else:
+        log_dir_temp = self.log_dir.parent / str(self.file_idx)
+        if not os.path.exists(log_dir_temp): os.mkdir(log_dir_temp)
+        self.log_dir = pathlib.Path(log_dir_temp)
+        self.file_idx += 1
     log_conv_features(model=self.model, layer_nums=self.layer_nums,
                 preprocess_func=self.preprocess_func, directory=self.log_dir,
                 filter_indices=self.filter_indices, iterations=self.iterations,
                 step_size=self.step_size, resizes=self.resizes,
-                resize_factor=self.resize_factor, sigma=self.sgima,
-                clip=self.clip, train_step=self.train_step, entropy=self.entropy)
+                resize_factor=self.resize_factor, clip=self.clip,
+                scale_early_layers = self.scale_early_layers,
+                train_step=self.train_step, entropy=self.entropy,
+                save_to_disk=self.save_to_disk, tensorboard_log=self.tensorboard_log,
+                show_plots=self.show_plots
+                )
 

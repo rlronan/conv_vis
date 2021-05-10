@@ -15,7 +15,120 @@ import pathlib
 import os
 import math
 import warnings
+from tensorflow_addons.image import utils as img_utils
+from tensorflow_addons.utils import keras_utils
+from tensorflow_addons.utils.types import TensorLike
+from typing import Optional, Union, List, Tuple
 
+#%%
+def sobel_filter(image):
+    # convert to tensor and [0,1]
+    image /= 255
+    image = tf.image.sobel_edges(image)
+    sobel_y = image[:, :, :, :, 0] # sobel in y-direction
+    sobel_y = tf.clip_by_value(sobel_y / 4 + 0.5, 0, 1) # remap to [0,1]
+
+    sobel_x = image[:, :, :, :, 1] # sobel in x-direction
+    sobel_x = tf.clip_by_value(sobel_x / 4 + 0.5, 0, 1) # remap to [0,1]
+    image = tf.clip_by_value(0.5*sobel_x + 0.5*sobel_y, 0, 1)
+    image *= 255
+    return image
+#%%
+def _pad(
+    image: TensorLike,
+    filter_shape: Union[List[int], Tuple[int]],
+    mode: str = "CONSTANT",
+    constant_values: TensorLike = 0,
+) -> tf.Tensor:
+    """Explicitly pad a 4-D image.
+    Equivalent to the implicit padding method offered in `tf.nn.conv2d` and
+    `tf.nn.depthwise_conv2d`, but supports non-zero, reflect and symmetric
+    padding mode. For the even-sized filter, it pads one more value to the
+    right or the bottom side.
+    Args:
+      image: A 4-D `Tensor` of shape `[batch_size, height, width, channels]`.
+      filter_shape: A `tuple`/`list` of 2 integers, specifying the height
+        and width of the 2-D filter.
+      mode: A `string`, one of "REFLECT", "CONSTANT", or "SYMMETRIC".
+        The type of padding algorithm to use, which is compatible with
+        `mode` argument in `tf.pad`. For more details, please refer to
+        https://www.tensorflow.org/api_docs/python/tf/pad.
+      constant_values: A `scalar`, the pad value to use in "CONSTANT"
+        padding mode.
+    """
+    if mode.upper() not in {"REFLECT", "CONSTANT", "SYMMETRIC"}:
+        raise ValueError(
+            'padding should be one of "REFLECT", "CONSTANT", or "SYMMETRIC".'
+        )
+    constant_values = tf.convert_to_tensor(constant_values, image.dtype)
+    filter_height, filter_width = filter_shape
+    pad_top = (filter_height - 1) // 2
+    pad_bottom = filter_height - 1 - pad_top
+    pad_left = (filter_width - 1) // 2
+    pad_right = filter_width - 1 - pad_left
+    paddings = [[0, 0], [pad_top, pad_bottom], [pad_left, pad_right], [0, 0]]
+    return tf.pad(image, paddings, mode=mode, constant_values=constant_values)
+
+
+def mean_filter2d(
+    image: TensorLike,
+    filter_shape: Union[List[int], Tuple[int], int] = [3, 3],
+    padding: str = "REFLECT",
+    constant_values: TensorLike = 0,
+    name: Optional[str] = None,
+) -> tf.Tensor:
+    """Perform mean filtering on image(s).
+    Args:
+      image: Either a 2-D `Tensor` of shape `[height, width]`,
+        a 3-D `Tensor` of shape `[height, width, channels]`,
+        or a 4-D `Tensor` of shape `[batch_size, height, width, channels]`.
+      filter_shape: An `integer` or `tuple`/`list` of 2 integers, specifying
+        the height and width of the 2-D mean filter. Can be a single integer
+        to specify the same value for all spatial dimensions.
+      padding: A `string`, one of "REFLECT", "CONSTANT", or "SYMMETRIC".
+        The type of padding algorithm to use, which is compatible with
+        `mode` argument in `tf.pad`. For more details, please refer to
+        https://www.tensorflow.org/api_docs/python/tf/pad.
+      constant_values: A `scalar`, the pad value to use in "CONSTANT"
+        padding mode.
+      name: A name for this operation (optional).
+    Returns:
+      2-D, 3-D or 4-D `Tensor` of the same dtype as input.
+    Raises:
+      ValueError: If `image` is not 2, 3 or 4-dimensional,
+        if `padding` is other than "REFLECT", "CONSTANT" or "SYMMETRIC",
+        or if `filter_shape` is invalid.
+    """
+    with tf.name_scope(name or "mean_filter2d"):
+        image = tf.convert_to_tensor(image, name="image")
+        original_ndims = img_utils.get_ndims(image)
+        image = img_utils.to_4D_image(image)
+
+        filter_shape = keras_utils.normalize_tuple(filter_shape, 2, "filter_shape")
+
+        # Keep the precision if it's float;
+        # otherwise, convert to float32 for computing.
+        orig_dtype = image.dtype
+        if not image.dtype.is_floating:
+            image = tf.dtypes.cast(image, tf.dtypes.float32)
+
+        # Explicitly pad the image
+        image = _pad(image, filter_shape, mode=padding, constant_values=constant_values)
+
+        # Filter of shape (filter_width, filter_height, in_channels, 1)
+        # has the value of 1 for each element.
+        area = tf.constant(filter_shape[0] * filter_shape[1], dtype=image.dtype)
+        filter_shape += (tf.shape(image)[-1], 1)
+        kernel = tf.ones(shape=filter_shape, dtype=image.dtype)
+
+        output = tf.nn.depthwise_conv2d(
+            image, kernel, strides=(1, 1, 1, 1), padding="VALID"
+        )
+
+        output /= area
+
+        output = img_utils.from_4D_image(output, original_ndims)
+        return tf.dtypes.cast(output, orig_dtype)
 
 def grid_display(array, num_rows=None, num_columns=None):
     """
@@ -31,6 +144,8 @@ def grid_display(array, num_rows=None, num_columns=None):
     CODE FROM: https://github.com/sicara/tf-explain/blob/master/tf_explain/utils/display.py
 
     """
+    assert(len(array.shape) == 4)
+
     if num_rows is not None and num_columns is not None:
         total_grid_size = num_rows * num_columns
         if total_grid_size < len(array):
@@ -134,7 +249,7 @@ def image_smoothness(image, filename_save):
   return(v3)
 
 #%% delentropy
-def delentropy(image, filename_save):
+def delentropy(image, filename_save, save_to_disk=True, show_plots=False):
     """
 
     Compute and save the 2D-entropy of an image.
@@ -259,7 +374,10 @@ def delentropy(image, filename_save):
 
     fig.tight_layout()
     fig.subplots_adjust( top = 0.92 )
-    plt.savefig(filename_save, format="png")
+    if show_plots:
+      plt.show()
+    if save_to_disk:
+      plt.savefig(pathlib.Path(str(filename_save) + str(H) + '.png'), format="png")
     plt.close()
     return H
 
@@ -268,8 +386,7 @@ def delentropy(image, filename_save):
 def normalize_cast(img):
   """
 
-  Normalize image and cast to an image tensor of type tf.uint8 in the range [0,255].
-    for saving.
+  Cast image to an image tensor of type tf.uint8 in the range [0,255] for saving.
 
   Args:
     img: an image castable to a 'numpy array'.
@@ -277,13 +394,9 @@ def normalize_cast(img):
   Returns: 'tf.tensor' of type 'tf.uint8' with values in [0,255]
 
   """
-  img = img.numpy().astype(float) # cast to float just in case img is in [0,255]
   # don't normalize, image, just rescale to [0,1] --> [0,255]
-  # Normalize image and rescale to unit interval
-  #img -= img.mean()         # set mean to 0
-  #img /= (img.std() + 1e-5) # set standard dev to 1
-  # img = np.clip(img, -1, 1) # clip to [-1,1]
-  # img = (img + 1) / 2       # rescale to [0,1]
+  assert(len(img.shape) == 4)
+  img = img.numpy().astype(float)
 
   alpha = np.min(img)
   # Sends alpha to zero if positive or neg
@@ -292,7 +405,6 @@ def normalize_cast(img):
   if np.min(img) != beta:
     img /= beta
 
-  # Convert image to uint8
   #   img is in [0,1] rather than [0,1) so saturate=True
   img = tf.image.convert_image_dtype(img, dtype=tf.uint8, saturate=True)
 

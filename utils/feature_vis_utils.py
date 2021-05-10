@@ -13,11 +13,10 @@ import pathlib
 import imageio
 from utils import *
 
-
 #%% get_features
 def get_features(model=None, layer_name = None, preprocess_func=None,
-                filter_index=0, iterations=50, step_size=1, resizes=2,
-                resize_factor=1.2, sigma=1.2, clip=True):
+                filter_index=0, iterations=200, step_size=1, resizes=10,
+                resize_factor=1.2, clip=True):
   """
   Generate visualizations of convolutional features by computing the maximum mean
   filter activation (the image that maximizes the mean filter activation).
@@ -52,7 +51,6 @@ def get_features(model=None, layer_name = None, preprocess_func=None,
        quality as well).
     resize_factor: A 'float' specifying how much to resize the image by during
       resizing.
-    sigma: A `float` givng the standard deviation of the gaussian bluring during resizing.
     clip: (default: `True`) A `Boolean` controlling whether to 'clip' pixel values in the lower
       1/8 of the range to 0 (or -1 for images in [-1,1]). This can reduce noise
       and improve the quality of feature visualizations.
@@ -73,7 +71,7 @@ def get_features(model=None, layer_name = None, preprocess_func=None,
     # tf.keras.appplication models require a preprocessing layer, and
     #they cannot use tensorflow variables, so tensorflow tensors will be used.
     model_in = model.inputs[0]
-    processed = preprocess_func(model_in, )
+    processed = preprocess_func(model_in)
     submodel_temp = tf.keras.models.Model([model.inputs[0]], [model.get_layer(layer_name).output])
     processed = submodel_temp(processed)
     submodel = tf.keras.models.Model([model.inputs[0]], [processed])
@@ -84,100 +82,116 @@ def get_features(model=None, layer_name = None, preprocess_func=None,
   assert len(model.input_shape) == 4
   assert (model.input_shape[-1] == 3 or model.input_shape[-1] == 1)
   input_shape =  model.input_shape
-  img_shape = (1, input_shape[1], input_shape[2], input_shape[3]) # (batch_size, height, width, channels)
+  base_scale = 4
 
-  if img_shape[1] % 2 == 0:
-    resize_size = [int(img_shape[1]*resize_factor)//2 * 2, # resize and make height an even `int`
-                   int(img_shape[1]*resize_factor)//2 * 2  # resize and make width an even `int`
-                  ]
-    # shape must be 4D: (1, H, W, Channels)
-    resize_shape = (1,
-                    int(img_shape[1]*resize_factor)//2 * 2,
-                    int(img_shape[2]*resize_factor)//2 * 2,
-                    img_shape[3]
-                   )
-  else:
-    resize_size = [int(img_shape[1]*resize_factor)//2 * 2 + 1, # resize and make height an odd `int`
-                   int(img_shape[1]*resize_factor)//2 * 2 + 1  # resize and make width an even `int`
-                  ]
-    # shape must be 4D: (1, H, W, Channels)
-    resize_shape = (1,
-                    int(img_shape[1]*resize_factor)//2 * 2 + 1,
-                    int(img_shape[2]*resize_factor)//2 * 2 + 1,
-                    img_shape[3]
-                   )
+  # Set starting image to be 1/4 the size of the standard input
+  img_shape = (1, input_shape[1]//base_scale, input_shape[2]//base_scale, input_shape[3]) # (batch_size, height, width, channels)
+  def final_size(img_shape, resizes, resize_factor):
+    size = img_shape[1]
+    for r in range(resizes):
+      size = int(size*resize_factor)
+    return size
 
+  # if the image won't be sufficently enlarged/shrunk so that the
+  # final image is larger/smaller than the input, reduce/increase the base image
+  #   scaling from 1/4 --> 1/3.75 --> 1/3.5 --> --> 1
+  #   scaling from 1/4 --> 1/4.25 --> 1/4.5 -->
+  new_scale = base_scale
+  while final_size(img_shape, resizes, resize_factor) >=  1.5*input_shape[1]:
+    new_scale += 0.25
+    img_shape = (1, int(input_shape[1]//new_scale), int(input_shape[2]//new_scale), input_shape[3])
+  while final_size(img_shape, resizes, resize_factor) < input_shape[1]:
+    new_scale -= 0.25
+    img_shape = (1, int(input_shape[1]//new_scale), int(input_shape[2]//new_scale), input_shape[3])
 
   if preprocess_func is None:
-    # create image in [0,255] with values 128 +/- (0,20) then convert to float in [0,1]
-    input_img_data        = np.uint8(np.random.randint(-20, 21, img_shape) + 128)/255
-    input_img_data_resize = np.uint8(np.random.randint(-20, 21, resize_shape) + 128)/255
+    # create image in [0,255] then cast to float in [0,1]
+    input_img_data        = np.uint8(np.random.uniform(117,137, img_shape))/255
     input_img_data        = tf.Variable(tf.cast(input_img_data, tf.float32))
-    input_img_data_resize = tf.Variable(tf.cast(input_img_data_resize, tf.float32))
+
+
   elif preprocess_func == 'default':
-    # create image in [0,255] with values 128 +/- (0,20) then convert to float in [-1,1]
-    input_img_data        = np.uint8(np.random.randint(-20, 21, img_shape) + 128)/127.5 - 1
-    input_img_data_resize = np.uint8(np.random.randint(-20, 21, resize_shape) + 128)/127.5 - 1
+    # create image in [0,255] then cast to float in [-1,1]
+    input_img_data        = np.uint8(np.random.randint(117,137, img_shape))/127.5 - 1
     input_img_data        = tf.Variable(tf.cast(input_img_data, tf.float32))
-    input_img_data_resize = tf.Variable(tf.cast(input_img_data_resize, tf.float32))
+
   else: # '255' or tf.keras.application.[model].preprocess_input() both asssume images in a [0,255]
-    # create image in [0,255] with values 128 +/- (0,20)
-    input_img_data        = np.uint8(np.random.randint(-20, 21, img_shape) + 128)
-    input_img_data_resize = np.uint8(np.random.randint(-20, 21, resize_shape) + 128)
+    # create image in [0,255] then cast to float.
+    input_img_data        = np.uint8(np.random.randint(117,137, img_shape))
     input_img_data        = tf.cast(input_img_data, tf.float32)
-    input_img_data_resize = tf.cast(input_img_data_resize, tf.float32)
 
-#TODO: Implement non-standard optimizer (e.g. Adam):
+  tf.get_logger().setLevel('ERROR') # else warnings every iteration if a tf.tensor is used
+  opt = tf.keras.optimizers.Adam(learning_rate=0.1)
 
-  for k in range(resizes+1):
-    for i in range(iterations//(resizes + 1)):
-      with tf.GradientTape() as tape:
-        if not tf_var:
-          tape.watch(input_img_data)
-        outputs = submodel(input_img_data, training=False)                        # evaluation mode
-        loss_value = tf.reduce_mean(outputs[:, :, :, filter_index])               # calculate loss wrt the filter
-        grads = tape.gradient(loss_value, input_img_data)                         # calculate gradient wrt input image
-        normalized_grads = grads / (tf.sqrt(tf.reduce_mean(tf.square(grads))) + 1e-5) # normalize gradient
+  for resize in range(resizes+2):
+    for it in range(iterations//(resizes+2)):
+      with tf.GradientTape(watch_accessed_variables=False) as tape:
+        tape.watch(input_img_data)
+        outputs = submodel(input_img_data, training=False) # evaluation mode
 
+        # calculate loss as the average value of the filter
+        # and negate the loss because we're doing gradient ascent.
+        loss_value = -1*tf.reduce_mean(outputs[:, :, :, filter_index])
+
+      # calculate the gradient with resp to the input image, rather than the model vars
+      grads = tape.gradient(loss_value, input_img_data)
+      normalized_grads = grads / (
+        tf.sqrt(tf.reduce_mean(tf.square(grads))) + 1e-5)
+
+      # update input image, not the model, with gradient ascent
       if tf_var:
-        input_img_data.assign_add(normalized_grads * step_size)                   # update input image with gradient ascent
+        opt.apply_gradients(zip([normalized_grads], [input_img_data]))
       else:
-        input_img_data += normalized_grads * step_size
+        input_img_data = tf.Variable(input_img_data) # cannot use Adam.apply_gradient on tensors
+        opt.apply_gradients(zip([normalized_grads], [input_img_data]))
+        input_img_data = tf.convert_to_tensor(input_img_data)
 
-      if clip and (i % 3 == 1):
-        # if we clip, do so periodicially. Every 3rd iteration was choosen ~randomly
-        if (preprocess_func is None): # image in [0,1]
+      # exceot for images in [0,1], we first clip values in the lower 1/8th of
+      # the image range up, then subtract down. for Im
+      if clip and (it % 5 == 0):
+        if (preprocess_func is None):         # image in [0,1]
           input_img_data.assign(tf.keras.activations.relu(input_img_data, threshold=0.125))
-        elif (preprocess_func == 'default'): # image in [-1,1]
-          # clip up to -0.75 so we can subtract down to -1.0
+        elif (preprocess_func == 'default'):  # image in [-1,1]
           input_img_data.assign(tf.math.maximum(input_img_data, -0.75))
           input_img_data.assign_sub( 0.25 * tf.cast(tf.math.equal(input_img_data,-0.75), tf.float32))
-        elif (preprocess_func == '255'): # image in [0,255]
-          # clip up to 32 so we can subtract down to 0
-          input_img_data.assign(tf.math.maximum(input_img_data, 32))
-          input_img_data.assign_sub( 32 * tf.cast(tf.math.equal(input_img_data, 32), tf.float32))
-        else: # imagein [0,255]
-          # clip up to 32 so we can subtract down to 0
-          input_img_data = tf.math.maximum(input_img_data, 32)
-          input_img_data -= 32 * tf.cast(tf.math.equal(input_img_data, 32), tf.float32)
+        elif (preprocess_func == '255'):      # image in [0,255]
+          input_img_data.assign(tf.keras.activations.relu(input_img_data, threshold=32))
 
-    if (k != resizes): # if not finished
+          # input_img_data.assign(tf.math.maximum(input_img_data, 32))
+          # input_img_data.assign_sub( 32 * tf.cast(tf.math.equal(input_img_data, 32), tf.float32))
+        else:                                 # image in [0,255], and is not a tf.var
+          input_img_data = tf.keras.activations.relu(input_img_data, threshold=32)
+
+          # input_img_data = tf.math.maximum(input_img_data, 32)
+          # input_img_data -= 32 * tf.cast(tf.math.equal(input_img_data, 32), tf.float32)
+    if resize < resizes:
       if tf_var:
-        # enlarge image, crop back down to input size, and add noise.
-        input_img_data_resize.assign(tf.image.resize(input_img_data, resize_size, method='bicubic'))
-        input_img_data.assign(tf.image.central_crop(input_img_data_resize, img_shape[1]/resize_size[0]))
-        input_img_data.assign(tf.keras.layers.GaussianNoise(stddev=sigma)(input_img_data, training=True))
-      else:
-        input_img_data_resize = tf.image.resize(input_img_data, resize_size, method='bicubic')
-        input_img_data = tf.image.central_crop(input_img_data_resize, img_shape[1]/resize_size[0])
-        input_img_data = tf.keras.layers.GaussianNoise(stddev=sigma)(input_img_data, training=True)
+        # Resize and blur the image to reduce high-frequency noise.
+        size = np.array(input_img_data.shape)*resize_factor
+        input_img_data = tf.Variable(tf.image.resize(input_img_data, (int(size[1]), int(size[2])), method='bicubic'))
+        if input_img_data.shape[1] >= 56:
+          input_img_data.assign(mean_filter2d(input_img_data, filter_shape=(5,5)))
+        else:
+          input_img_data.assign(mean_filter2d(input_img_data, filter_shape=(3,3)))
 
+      else:
+        size = np.array(input_img_data.shape)*resize_factor
+        input_img_data = tf.image.resize(input_img_data, (int(size[1]), int(size[2])), method='bicubic')
+        if input_img_data.shape[1] >= 56:
+          input_img_data = mean_filter2d(input_img_data, filter_shape=(5,5))
+        else:
+          input_img_data = mean_filter2d(input_img_data, filter_shape=(3,3))
+
+
+  tf.get_logger().setLevel('INFO')
   return input_img_data
 
 #%% save features
-def save_features(model=None, layer_name=None, preprocess_func=None, save_directory=None,
-                 filter_indices=None, iterations=50, step_size=1, resizes=2,
-                 resize_factor=1.2, sigma=1.2, clip=True, step=None, entropy=True):
+def save_features(model=None, layer_name=None, preprocess_func=None,
+                  save_directory=None, filter_indices=None, iterations=200,
+                  step_size=1, resizes=10, resize_factor=1.2, clip=True,
+                  step=None, entropy=True, save_to_disk=True, tensorboard_log=True,
+                  show_plots=False):
   """
   Save visualizations of features and their entropy for convolutional layers.
 
@@ -218,13 +232,16 @@ def save_features(model=None, layer_name=None, preprocess_func=None, save_direct
        quality as well).
     resize_factor: A 'float' specifying how much to resize the image by during
       resizing.
-    sigma: A `float` givng the standard deviation of the gaussian bluring during resizing.
     clip: (default: `True`) A `Boolean` controlling whether to 'clip' pixel values in the lower
       1/8 of the range to 0 (or -1 for images in [-1,1]). This can reduce noise
       and improve the quality of feature visualizations.
     step: (Optional) An `int` that gives the step for tensorboard logging.
     entropy: (default: `True`) `Boolean` describing whether or not to compute
       and save the 2D-entropy of the convolutional features visualized.
+    save_to_disk: (default: `True`) `Boolean` describing whether or not to save
+      feature images to disk.
+    tensorboard_log: (default: `True`) `Boolean` describing whether or not to
+      log data to tensorboard.
 
   Returns:
     An image containing the feature visualizations in a grid.
@@ -244,11 +261,8 @@ def save_features(model=None, layer_name=None, preprocess_func=None, save_direct
     # get the 'features'; i.e. the images that maximally activate the mean value of the filter
     image = get_features(model, layer_name=layer_name, preprocess_func=preprocess_func,
                         filter_index=idx, iterations=iterations, step_size=step_size,
-                        resizes=resizes, resize_factor=resize_factor, sigma=sigma,
-                        clip=clip)
-    # recast image to [0,255]
-    image = normalize_cast(image)
-
+                        resizes=resizes, resize_factor=resize_factor, clip=clip)
+    image = normalize_cast(image)     # recast image to [0,255]
     if count != 0:
       images = np.concatenate((images, image), axis=0)
     else:
@@ -256,53 +270,52 @@ def save_features(model=None, layer_name=None, preprocess_func=None, save_direct
     count += 1
 
     if entropy:
-      save_str = layer_name + '_' + str(idx) + '_entropy.png'
-      # compute the entropy of the image
-      entropy_value = delentropy(image, filename_save = save_directory /  save_str)
+      save_str = layer_name + '_' + str(idx) + '_entropy' #.png
+      entropy_value = delentropy(image, filename_save = save_directory /  save_str,
+                                 save_to_disk=save_to_disk, show_plots=show_plots)
       entropy_total += entropy_value
-
 
   entropy_total /= len(filter_indices)
   if entropy:
-    try:
-      summary_str = str(layer_name) + "_entropy"
+    #try:
+    summary_str = str(layer_name) + "_entropy"
+    if tensorboard_log:
       tf.summary.scalar(summary_str, data=entropy_total, step=step)
-
-      with open(save_directory  / 'entropy_log.txt.', 'a+') as logfile:
-        logfile.write("Layer: {},  Entropy: {}\n".format(layer_name, entropy_total))
-    except IOError as e:
-      tf.print("Could not write to log file at {}. Error text: {}".format(save_directory / 'entropy_log.txt.', e))
-
-    if (save_directory.parent / 'filter_log.txt').exists():
+    if save_to_disk:
       try:
-        with open(save_directory.parent / 'filter_log.txt', 'a+') as kernel_log:
-          kernel_log.write("Layer: {},  Entropy: {}\n".format(layer_name, entropy_total))
+        with open(save_directory  / 'entropy_log.txt.', 'a+') as logfile:
+          logfile.write("Layer: {},  Entropy: {}\n".format(layer_name, entropy_total))
       except IOError as e:
-        tf.print("Could not write to log file at {}. Error text: {}".format(save_directory.parent / 'filter_log.txt', e))
-    elif (save_directory / 'filter_log.txt').exists():
-      try:
-        with open(save_directory / 'filter_log.txt', 'a+') as kernel_log:
-          kernel_log.write("Layer: {},  Entropy: {}\n".format(layer_name, entropy_total))
-      except IOError as e:
-        tf.print("Could not write to log file at {}. Error text: {}".format(save_directory / 'filter_log.txt', e))
+        tf.print("Could not write to log file at {}. Error text: {}".format(save_directory / 'entropy_log.txt.', e))
 
-    #tf.print("Layer: {},  Entropy: {}".format(layer_name, np.round(entropy_total, 9)))
+      if (save_directory.parent / 'filter_log.txt').exists():
+        try:
+          with open(save_directory.parent / 'filter_log.txt', 'a+') as kernel_log:
+            kernel_log.write("Layer: {},  Entropy: {}\n".format(layer_name, entropy_total))
+        except IOError as e:
+          tf.print("Could not write to log file at {}. Error text: {}".format(save_directory.parent / 'filter_log.txt', e))
+      elif (save_directory / 'filter_log.txt').exists():
+        try:
+          with open(save_directory / 'filter_log.txt', 'a+') as kernel_log:
+            kernel_log.write("Layer: {},  Entropy: {}\n".format(layer_name, entropy_total))
+        except IOError as e:
+          tf.print("Could not write to log file at {}. Error text: {}".format(save_directory / 'filter_log.txt', e))
 
+    #tf.print("Layer: {},  Entropy: {}".format(layer_name, np.round(entropy_total, 7)))
   if len(images) > 1:
-    try:
-      images = grid_display(images)
-    except TypeError as e:
-      tf.print("ERROR: Cannot call grid_display on one image. If this error does reappear, it may not be a true error.")
-      tf.print(e)
-      tf.print(images.shape)
-      images = images[0]
-      pass
+    images = grid_display(images)
   if len(images) == 1:
     images = images[0]
   if entropy:
     image_name = layer_name + '_filter_' + str(np.round(entropy_total,9)) + '.png'
   else:
     image_name = layer_name + '_filter.png'
-
-  imageio.imwrite(save_directory / image_name, images, format='png')
+  if tensorboard_log:
+    summary_str = str(layer_name) + "Features"
+    images_tb = tf.expand_dims(images, axis=0)
+    tf.summary.image(name=summary_str, data=images_tb, step=step)
+  if save_to_disk:
+    imageio.imwrite(save_directory / image_name, images, format='png')
+  # if show_plots:
+  #   plt.imshow(tf.reshape(images, list(images.shape)[:2]), cmap='gray')
   return images

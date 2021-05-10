@@ -2,8 +2,12 @@
 conv_feature_vis utilities
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
+
+from .utils import sobel_filter
+from .utils import _pad
+from .utils import mean_filter2d
 from .utils import grid_display
 from .utils import image_smoothness
 from .utils import delentropy
@@ -15,6 +19,8 @@ from .feature_vis_utils import save_features
 from .feature_vis_utils import get_features
 
 __all__ = [
+    "sobel_filter"
+    "mean_filter2d"
     "grid_display",
     "image_smoothness",
     "delentropy",

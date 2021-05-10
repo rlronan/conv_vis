@@ -2,7 +2,7 @@
 conv_feature_vis
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .feature_vis import log_conv_features
 from .feature_vis import log_conv_features_callback
