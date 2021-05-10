@@ -41,9 +41,17 @@ conv layer #, 	 layer name, 	 layer index in model
 10 		 block5_conv1 		 15
 11 		 block5_conv2 		 16
 12 		 block5_conv3 		 17
->>> log_conv_features(model, layer_nums=[0,1,6,5,11,12], preprocess_func=tf.keras.applications.vgg16.preprocess_input,
-            directory=pathlib.Path('./feature_logs/'), filter_indices=np.arange(16),
-            iterations=250, step_size=1, resizes=10, resize_factor=1.2, entropy=True)
+>>> log_conv_features(model, 
+                      layer_nums=[0,1,6,5,11,12], 
+                      preprocess_func=tf.keras.applications.vgg16.preprocess_input,
+                      directory=pathlib.Path('./feature_logs/'), 
+                      filter_indices=np.arange(16), # default value
+                      iterations=250,               # default value
+                      step_size=1,                  # default value
+                      resizes=10,                   # default value
+                      resize_factor=1.2,            # default value
+                      entropy=True                  # default value
+                      )                 
 ```
 
 ### Example Callback Usage
@@ -62,11 +70,13 @@ conv layer #, 	 layer name, 	 layer index in model
 12 		 block5_conv3 		 17
 >>> feature_callback = log_conv_features_callback(
         log_dir=pathlib.Path('./feature_logs/'),
-        update_freq='epoch',
+        update_freq='epoch',                        # default value
         update_freq_val=5,
         layer_nums=[0,1,2,10,11,12],
         preprocess_func=tf.keras.applications.vgg16.preprocess_input,
-        clip=True, entropy=True)
+        clip=True,                                  # default value
+        entropy=True                                # default value
+        )
 >>> history = model.fit(train_dataset, epochs=20, validation_data=val_dataset,
                         callbacks=[feature_callback])
 ```
