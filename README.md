@@ -1,4 +1,6 @@
 # EasyVIZ
+![Header Image](/sample_images/header_image.png)
+
 Easy to use visualizations for convolutional networks, and metrics for those visualizations.
 
 For a demo of the package please see ![EasyVIZ Demo](https://github.com/rlronan/cnn_vis_demo).
