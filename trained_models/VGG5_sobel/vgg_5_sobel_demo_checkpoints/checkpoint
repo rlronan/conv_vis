@@ -1,0 +1,2 @@
+model_checkpoint_path: "vgg5_sobel_demo.chkpt"
+all_model_checkpoint_paths: "vgg5_sobel_demo.chkpt"
