@@ -21,15 +21,15 @@ Visualizes activations from layers in CNN.
 
 Activations are computed by passing an image through the model and sampling the output of each layer.
 
-Usage: plot_metrics = VisualizeVggFeatures(num_layers=6,sample_image=input_image,mode='test')
-       loss, acc = model.evaluate(testX, testY, verbose=2, callbacks = [plot_metrics])
+Usage:     plot_metrics = VisualizeVggFeatures(num_layers=6,sample_image=input_image,mode='test',layers=[1,2])
+           loss, acc = model.evaluate(testX, testY, verbose=2, callbacks = [plot_metrics])
 
 Params: Model
 Returns: none
 
 """
 class VisualizeVggFeatures(tf.keras.callbacks.Callback):
-    def __init__(self,sample_image=None,num_layers=None,mode=None,interval=None,layers=[-1]):
+    def __init__(self,sample_image=None,num_layers=None,mode=None,interval=None,layers=[]):
       self.num_layers=num_layers
       self.sample_image=sample_image
       self.mode=mode
@@ -52,14 +52,10 @@ class VisualizeVggFeatures(tf.keras.callbacks.Callback):
 
 
     def vis_layers(self):
+
         model = self.model
-
-    
-        activation_dims = model.layers[0].output
-        input_width = activation_dims[1]
-
-
         num_layers = self.num_layers
+
         if self.sample_image is None:
             randomNoise = np.random.rand(1,input_width,input_witdth,3)
             randomNoise = randomNoise * 255
@@ -69,16 +65,27 @@ class VisualizeVggFeatures(tf.keras.callbacks.Callback):
                 randomNoise = tf.expand_dims(randomNoise, axis=0)
 
 
+        activation_dims = model.layers[0].output
+        input_width = activation_dims[1]
 
-        layer_outputs = [layer.output for layer in model.layers[1:num_layers+1]] # Gathers the outputs of the layers we want 
+        if len(self.layers) == 0:
+            layer_names = []
+            for layer in model.layers[:num_layers]:
+                layer_names.append(layer.name) # Names of the layers, so you can have them as part of your plot
+            layer_outputs = [layer.output for layer in model.layers[1:num_layers+1]] # Gathers the outputs of the layers we want 
+
+        else:
+            layer_names = []
+            layer_outputs = []
+            for layer_num in self.layers:
+                layer_names.append(model.layers[layer_num].name)
+                layer_outputs.append(model.layers[layer_num].output)
+
+
         activation_model = Model(inputs=model.input, outputs=layer_outputs) # Isolates the model layers from our model
         activations = activation_model.predict(randomNoise) # Returns a list of five Numpy arrays: one array per layer activation
 
         images_per_row = 16
-
-        layer_names = []
-        for layer in model.layers[:num_layers]:
-            layer_names.append(layer.name) # Names of the layers, so you can have them as part of your plot
 
 
         for layer_name, layer_activation in zip(layer_names, activations): # Iterates over every layer
