@@ -21,32 +21,56 @@ Visualizes activations from layers in CNN.
 
 Activations are computed by passing an image through the model and sampling the output of each layer.
 
+Usage: plot_metrics = VisualizeVggFeatures(num_layers=6,sample_image=input_image,mode='test')
+       loss, acc = model.evaluate(testX, testY, verbose=2, callbacks = [plot_metrics])
+
 Params: Model
 Returns: none
 
 """
-
-
 class VisualizeVggFeatures(tf.keras.callbacks.Callback):
-    def __init__(self,
-              sample_image=None):
+    def __init__(self,sample_image=None,num_layers=None,mode=None,interval=None,layers=[-1]):
+      self.num_layers=num_layers
       self.sample_image=sample_image
+      self.mode=mode
+      self.interval=interval
+      self.layers = layers
+   
 
 
     def on_epoch_end(self, epoch, logs={}):
+        if self.mode=='epoch' and (epoch%self.interval == 0):
+            self.vis_layers()
 
+    def on_batch_end(self, batch, logs={}):
+        if self.mode=='batch' and (batch%self.interval == 0):
+            self.vis_layers()
+
+    def on_test_end(self,logs={}):
+        if self.mode=='test':
+            self.vis_layers()
+
+
+    def vis_layers(self):
         model = self.model
 
-        num_layers = 6
+    
+        activation_dims = model.layers[0].output
+        input_width = activation_dims[1]
+
+
+        num_layers = self.num_layers
         if self.sample_image is None:
-            randomNoise = np.random.rand(1,32,32,3)
+            randomNoise = np.random.rand(1,input_width,input_witdth,3)
             randomNoise = randomNoise * 255
         else:
             randomNoise = self.sample_image
             if len(randomNoise.shape) == 3:
                 randomNoise = tf.expand_dims(randomNoise, axis=0)
 
-        layer_outputs = [layer.output for layer in model.layers[1:num_layers+1]] # Gathers the outputs of the layers we want
+
+
+        layer_outputs = [layer.output for layer in model.layers[1:num_layers+1]] # Gathers the outputs of the layers we want 
         activation_model = Model(inputs=model.input, outputs=layer_outputs) # Isolates the model layers from our model
         activations = activation_model.predict(randomNoise) # Returns a list of five Numpy arrays: one array per layer activation
 
@@ -85,3 +109,4 @@ class VisualizeVggFeatures(tf.keras.callbacks.Callback):
             plt.grid(False)
             plt.imshow(layer_vis, aspect='auto', cmap='plasma')
             plt.show()
+
