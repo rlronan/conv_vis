@@ -21,14 +21,14 @@ Visualizes activations from layers in CNN.
 
 Activations are computed by passing an image through the model and sampling the output of each layer.
 
-Usage:     plot_metrics = VisualizeVggFeatures(num_layers=6,sample_image=input_image,mode='test',layers=[1,2])
+Usage:     plot_metrics = visualize_activations(num_layers=6,sample_image=input_image,mode='test',layers=[1,2])
            loss, acc = model.evaluate(testX, testY, verbose=2, callbacks = [plot_metrics])
 
 Params: Model
 Returns: none
 
 """
-class VisualizeVggFeatures(tf.keras.callbacks.Callback):
+class visualize_activations(tf.keras.callbacks.Callback):
     def __init__(self,sample_image=None,num_layers=None,mode=None,interval=None,layers=[]):
       self.num_layers=num_layers
       self.sample_image=sample_image

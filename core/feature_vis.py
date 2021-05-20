@@ -5,8 +5,7 @@ import os
 import pathlib
 import imageio
 import warnings
-from utils import *
-from feature_vis_utils import *
+from ..utils import *
 
 def log_conv_features(model=None, layer_nums=None, preprocess_func=None,
                 directory="./models/", filter_indices = np.arange(16),
@@ -32,7 +31,7 @@ def log_conv_features(model=None, layer_nums=None, preprocess_func=None,
       layers in the model, since it may contain normalizing, and activation layers.
     preprocess_func: EITHER `None` if the model accepts inputs in the [0,1] range,
       OR 'default' if the model accepts inputs in the [-1,1] range,
-      OR '255' if the model accpets inputs in the [0,255] range (as floats),
+      OR '255' if the model accepts inputs in the [0,255] range (as floats),
       OR a preprocessing function/layer in line with the specifications of
       a tf.keras.applications.model_name.preprocess_input function.
       See: https://www.tensorflow.org/api_docs/python/tf/keras/applications/mobilenet/preprocess_input.
@@ -51,7 +50,7 @@ def log_conv_features(model=None, layer_nums=None, preprocess_func=None,
        quality as well).
     resize_factor: A 'float' specifying how much to resize the image by during
       resizing.
-    sigma: A `float` givng the standard deviation of the gaussian bluring during
+    sigma: A `float` giving the standard deviation of the Gaussian blurring during
       resizing.
     clip: A `Boolean` controlling whether to 'clip' pixel values in the lower
       1/8 of the range to 0 (or -1 for images in [-1,1]). This can reduce noise
@@ -126,7 +125,7 @@ class log_conv_features_callback(tf.keras.callbacks.Callback):
     update_freq: One of the`strings` 'epoch' or 'batch' declaring the frequency
       of log_conv_feature updates.
     update_freq_val: An `int` specifying frequency value for the updates.
-    overwite: (default: False) A `boolean` of whether logs should be overwritten
+    overwrite: (default: False) A `boolean` of whether logs should be overwritten
       every update by writing to the same folder. If entropy is true, overwrite
       will write to one folder, but won't actually overwrite the old images.
     layer_nums: A `list' of  `integers` specifying the conv layers to visualize.

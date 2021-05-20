@@ -1,8 +1,8 @@
 """
-conv_feature_vis utilities
+EasyVIZ utilities
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 
 from .utils import sobel_filter
@@ -19,8 +19,8 @@ from .feature_vis_utils import save_features
 from .feature_vis_utils import get_features
 
 __all__ = [
-    "sobel_filter"
-    "mean_filter2d"
+    "sobel_filter",
+    "mean_filter2d",
     "grid_display",
     "image_smoothness",
     "delentropy",
